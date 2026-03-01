@@ -22,3 +22,4 @@ backend/.pytest_cache/
 # Caddy Data
 caddy_data/
 caddy_config/
+node_modules
