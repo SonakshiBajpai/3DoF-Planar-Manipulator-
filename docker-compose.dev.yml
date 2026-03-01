@@ -35,6 +35,8 @@ services:
       - "3000:3000"
     depends_on:
       - api
+    environment:
+      - INTERNAL_API_URL=http://api:80
     env_file:
       - .env.development
     volumes:

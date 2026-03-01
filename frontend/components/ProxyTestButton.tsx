@@ -6,6 +6,22 @@ export default function ProxyTestButton() {
   const [response, setResponse] = useState<string>("Click the button to test");
   const [loading, setLoading] = useState(false);
 
+  const getResponseText = async (res: Response) => {
+    const contentType = res.headers.get("content-type") || "";
+    if (contentType.includes("application/json")) {
+      try {
+        return JSON.stringify(await res.json());
+      } catch {
+        // fall back to text
+      }
+    }
+    try {
+      return await res.text();
+    } catch {
+      return "";
+    }
+  };
+
   const testProxy = async () => {
     setLoading(true);
     try {
@@ -15,10 +31,16 @@ export default function ProxyTestButton() {
       const res = await fetch("/api/v1/ping");
 
       if (res.ok) {
-        const data = await res.json();
-        setResponse(`${data.message} (Time: ${data.time})`);
+        try {
+          const data = await res.json();
+          setResponse(`${data.message} (Time: ${data.time})`);
+        } catch {
+          const text = await getResponseText(res);
+          setResponse(text || "OK (non-JSON response)");
+        }
       } else {
-        setResponse(`Error: HTTP ${res.status}`);
+        const text = await getResponseText(res);
+        setResponse(text?.trim() ? `Error: ${text}` : `Error: HTTP ${res.status}`);
       }
     } catch (error) {
       setResponse("Failed to fetch. Check console for details.");

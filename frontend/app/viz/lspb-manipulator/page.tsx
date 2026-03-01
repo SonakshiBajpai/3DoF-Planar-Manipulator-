@@ -11,7 +11,8 @@ import {
   ResponsiveContainer,
   ReferenceLine,
 } from "recharts";
-import { RotateCcw, Settings2 } from "lucide-react";
+import Link from "next/link";
+import { ArrowLeft, RotateCcw, Settings2 } from "lucide-react";
 
 const CANVAS_WIDTH = 600;
 const CANVAS_HEIGHT = 600;
@@ -20,6 +21,38 @@ const BASE_Y = CANVAS_HEIGHT / 2;
 
 export default function LspbDashboard() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  const [chartsReady, setChartsReady] = useState(false);
+
+  const getResponseErrorMessage = async (res: Response) => {
+    const contentType = res.headers.get("content-type") || "";
+
+    if (contentType.includes("application/json")) {
+      try {
+        const body = await res.json();
+        if (body && typeof body === "object") {
+          const maybeDetail = (body as any).detail;
+          const maybeMessage = (body as any).message;
+          if (typeof maybeDetail === "string" && maybeDetail.trim())
+            return maybeDetail;
+          if (typeof maybeMessage === "string" && maybeMessage.trim())
+            return maybeMessage;
+          return JSON.stringify(body);
+        }
+      } catch {
+        // fall through to text
+      }
+    }
+
+    try {
+      const text = await res.text();
+      if (text && text.trim()) return text;
+    } catch {
+      // ignore
+    }
+
+    return `Request failed (HTTP ${res.status})`;
+  };
 
   // Controls State - Reduced lengths so max reach (240) fits inside 300px radius safely
   const [L1, setL1] = useState(100);
@@ -209,6 +242,10 @@ export default function LspbDashboard() {
     if (!isAnimating || hoverFrame !== null) drawCanvas(displayAngles);
   }, [displayAngles, targetXY, isAnimating, L1, L2, L3, hoverFrame]);
 
+  useEffect(() => {
+    setChartsReady(true);
+  }, []);
+
   // Handle Request & Clamping
   const handleCanvasClick = async (e: React.MouseEvent<HTMLCanvasElement>) => {
     if (isAnimating) return;
@@ -247,12 +284,17 @@ export default function LspbDashboard() {
         }),
       });
 
-      if (!res.ok)
-        throw new Error(
-          (await res.json()).detail || "Failed to generate trajectory",
-        );
+      if (!res.ok) {
+        const message = await getResponseErrorMessage(res);
+        throw new Error(message || "Failed to generate trajectory");
+      }
 
-      const data = await res.json();
+      let data: any;
+      try {
+        data = await res.json();
+      } catch {
+        throw new Error("Invalid server response (expected JSON)");
+      }
 
       // Augment trajectory with End Effector (X, Y) for the 4th graph
       const enrichedTrajectory = data.trajectory.map((pt: any) => {
@@ -303,40 +345,86 @@ export default function LspbDashboard() {
   const eePos = getJointPositions(displayAngles)[3];
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 p-6 font-sans flex flex-col">
-      <header className="mb-6 flex justify-between items-end border-b border-slate-200 pb-4">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight mb-1">
-            Trajectory Generator
-          </h1>
-          <p className="text-slate-500 text-sm">
-            Joint Space LSPB & Live Jacobian Diagnostics
-          </p>
-        </div>
-        {error && (
-          <div className="text-red-600 bg-red-50 px-4 py-2 rounded-lg text-sm border border-red-200">
-            {error}
+    <div className="space-y-6">
+      <header className="flex flex-col gap-4">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <Link
+              href="/"
+              className="inline-flex items-center gap-2 text-sm text-slate-600 hover:text-slate-900 transition-colors"
+            >
+              <ArrowLeft size={16} /> Back to Overview
+            </Link>
+            <h1 className="mt-2 text-2xl sm:text-3xl font-semibold tracking-tight text-slate-900">
+              Trajectory Generator
+            </h1>
+            <p className="mt-1 text-sm text-slate-600">
+              Joint-space LSPB planning with live Jacobian and chart scrubbing.
+            </p>
           </div>
-        )}
+
+          {error && (
+            <div className="text-red-700 bg-red-50 px-4 py-2 rounded-lg text-sm border border-red-200 max-w-md">
+              {error}
+            </div>
+          )}
+        </div>
+
+        <div className="rounded-2xl border border-slate-200 bg-white/70 backdrop-blur shadow-sm">
+          <div className="px-5 py-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div className="text-sm text-slate-700">
+              <span className="font-medium text-slate-900">Status:</span>{" "}
+              <span
+                className={
+                  isAnimating
+                    ? "text-blue-700 font-medium"
+                    : hoverFrame !== null
+                      ? "text-amber-700 font-medium"
+                      : "text-emerald-700 font-medium"
+                }
+              >
+                {hoverFrame !== null
+                  ? "History scrubbing"
+                  : isAnimating
+                    ? "Executing path"
+                    : "Idle — click canvas to set target"}
+              </span>
+            </div>
+            <div className="text-xs text-slate-500">
+              Tip: If you click outside max reach, the target snaps to the
+              boundary.
+            </div>
+          </div>
+        </div>
       </header>
 
-      <div className="flex gap-6 flex-1">
+      <div className="flex gap-6 flex-col xl:flex-row">
         {/* Left Column: Canvas & Controls */}
-        <div className="w-[600px] flex flex-col gap-4">
-          <div className="bg-white border border-slate-200 shadow-sm rounded-xl overflow-hidden cursor-crosshair relative">
-            <canvas
-              ref={canvasRef}
-              width={CANVAS_WIDTH}
-              height={CANVAS_HEIGHT}
-              onClick={handleCanvasClick}
-              className="block"
-            />
+        <div className="xl:w-[640px] flex flex-col gap-4">
+          <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+            <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
+              <div className="text-sm font-semibold text-slate-900">
+                Workspace
+              </div>
+              <div className="text-xs text-slate-500">600×600</div>
+            </div>
+            <div className="p-4">
+              <div className="rounded-xl border border-slate-200 overflow-hidden cursor-crosshair relative">
+                <canvas
+                  ref={canvasRef}
+                  width={CANVAS_WIDTH}
+                  height={CANVAS_HEIGHT}
+                  onClick={handleCanvasClick}
+                  className="block"
+                />
+              </div>
+            </div>
           </div>
 
           {/* Controls Panel */}
-          <div className="bg-white border border-slate-200 shadow-sm p-4 rounded-xl flex flex-col gap-4">
-            <div className="flex items-center gap-2 text-slate-700 font-semibold text-sm border-b border-slate-100 pb-2">
-              <Settings2 size={16} /> Configuration Parameters
+          <div className="rounded-2xl border border-slate-200 bg-white shadow-sm p-5 flex flex-col gap-4">
+            <div className="flex items-center gap-2 text-slate-900 font-semibold text-sm border-b border-slate-100 pb-3">
+              <Settings2 size={16} /> Configuration
             </div>
             <div className="grid grid-cols-2 gap-x-6 gap-y-4 text-sm">
               <label className="flex flex-col gap-1 text-slate-500">
@@ -385,24 +473,9 @@ export default function LspbDashboard() {
                 />
               </label>
             </div>
-            <div className="flex justify-between items-center mt-2 pt-4 border-t border-slate-100">
+            <div className="flex justify-between items-center mt-1 pt-4 border-t border-slate-100">
               <span className="text-slate-500 text-sm">
-                Status:{" "}
-                <span
-                  className={
-                    isAnimating
-                      ? "text-blue-500 font-medium"
-                      : hoverFrame !== null
-                        ? "text-amber-500 font-medium"
-                        : "text-emerald-500 font-medium"
-                  }
-                >
-                  {hoverFrame !== null
-                    ? "History Scrubbing..."
-                    : isAnimating
-                      ? "Executing Path..."
-                      : "Idle (Click Canvas)"}
-                </span>
+                Reset to the default pose and clear the current plan.
               </span>
               <button
                 onClick={() => {
@@ -412,7 +485,7 @@ export default function LspbDashboard() {
                   setError(null);
                   setHoverFrame(null);
                 }}
-                className="flex items-center gap-2 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition-colors text-sm font-medium"
+                className="flex items-center gap-2 px-3 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-lg transition-colors text-sm font-medium shadow-sm"
               >
                 <RotateCcw size={14} /> Reset Pose
               </button>
@@ -421,12 +494,15 @@ export default function LspbDashboard() {
         </div>
 
         {/* Right Column: Telemetry & Matrices */}
-        <div className="flex-1 flex flex-col gap-4">
-          <div className="bg-white border border-slate-200 shadow-sm p-4 rounded-xl">
-            <h3 className="text-xs font-bold text-slate-400 mb-3 uppercase tracking-wider">
-              Real-Time Kinematics Matrix
-            </h3>
-            <div className="grid grid-cols-2 gap-6">
+        <div className="flex-1 min-w-0 flex flex-col gap-4">
+          <div className="rounded-2xl border border-slate-200 bg-white shadow-sm p-5">
+            <div className="flex items-center justify-between">
+              <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+                Real-time diagnostics
+              </h3>
+              <div className="text-xs text-slate-400">Live / Scrub-aware</div>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 mt-3">
               <div className="flex flex-col gap-2">
                 <div className="text-xs text-slate-500">
                   End Effector (X, Y)
@@ -461,7 +537,7 @@ export default function LspbDashboard() {
           </div>
 
           {/* 4 Miniature Charts Grid */}
-          <div className="flex-1 grid grid-cols-2 gap-3 min-h-[400px]">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 min-w-0">
             {/* Charts for Joint 1, 2, 3 */}
             {[1, 2, 3].map((jointNum) => {
               const qKey = `q${jointNum}`;
@@ -471,129 +547,149 @@ export default function LspbDashboard() {
               return (
                 <div
                   key={jointNum}
-                  className="bg-white border border-slate-200 shadow-sm p-3 rounded-xl flex flex-col h-full"
+                  className="bg-white border border-slate-200 shadow-sm p-4 rounded-2xl flex flex-col min-w-0"
                 >
                   <h3 className="text-[10px] font-bold text-slate-400 mb-1 uppercase tracking-wider">
                     Joint {jointNum} Position (rad)
                   </h3>
-                  <div className="flex-1 min-h-0">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <LineChart
-                        data={trajectory}
-                        margin={{ top: 5, right: 5, bottom: 0, left: -25 }}
-                        onMouseMove={(e: any) =>
-                          e.activeTooltipIndex !== undefined &&
-                          setHoverFrame(e.activeTooltipIndex)
-                        }
-                        onMouseLeave={() => setHoverFrame(null)}
+                  <div className="h-44 sm:h-52">
+                    {chartsReady ? (
+                      <ResponsiveContainer
+                        width="100%"
+                        height="100%"
+                        minWidth={0}
+                        minHeight={0}
                       >
-                        <CartesianGrid
-                          strokeDasharray="3 3"
-                          stroke="#f1f5f9"
-                          vertical={false}
-                        />
-                        <XAxis
-                          dataKey="time"
-                          stroke="#cbd5e1"
-                          tick={{ fill: "#64748b", fontSize: 10 }}
-                          tickFormatter={(val) => val.toFixed(1)}
-                        />
-                        <YAxis
-                          stroke="#cbd5e1"
-                          tick={{ fill: "#64748b", fontSize: 10 }}
-                          domain={["dataMin - 0.5", "dataMax + 0.5"]}
-                        />
-                        <Tooltip contentStyle={{ fontSize: "12px" }} />
-                        <Line
-                          type="monotone"
-                          dataKey={qKey}
-                          stroke={color}
-                          strokeWidth={2}
-                          dot={false}
-                          isAnimationActive={false}
-                        />
-                        {trajectory.length > 0 && (
-                          <ReferenceLine
-                            x={
-                              trajectory[
-                                hoverFrame !== null ? hoverFrame : currentFrame
-                              ]?.time
-                            }
-                            stroke="#ef4444"
-                            strokeWidth={1}
+                        <LineChart
+                          data={trajectory}
+                          margin={{ top: 5, right: 5, bottom: 0, left: -25 }}
+                          onMouseMove={(e: any) =>
+                            e.activeTooltipIndex !== undefined &&
+                            setHoverFrame(e.activeTooltipIndex)
+                          }
+                          onMouseLeave={() => setHoverFrame(null)}
+                        >
+                          <CartesianGrid
+                            strokeDasharray="3 3"
+                            stroke="#f1f5f9"
+                            vertical={false}
                           />
-                        )}
-                      </LineChart>
-                    </ResponsiveContainer>
+                          <XAxis
+                            dataKey="time"
+                            stroke="#cbd5e1"
+                            tick={{ fill: "#64748b", fontSize: 10 }}
+                            tickFormatter={(val) => val.toFixed(1)}
+                          />
+                          <YAxis
+                            stroke="#cbd5e1"
+                            tick={{ fill: "#64748b", fontSize: 10 }}
+                            domain={["dataMin - 0.5", "dataMax + 0.5"]}
+                          />
+                          <Tooltip contentStyle={{ fontSize: "12px" }} />
+                          <Line
+                            type="monotone"
+                            dataKey={qKey}
+                            stroke={color}
+                            strokeWidth={2}
+                            dot={false}
+                            isAnimationActive={false}
+                          />
+                          {trajectory.length > 0 && (
+                            <ReferenceLine
+                              x={
+                                trajectory[
+                                  hoverFrame !== null
+                                    ? hoverFrame
+                                    : currentFrame
+                                ]?.time
+                              }
+                              stroke="#ef4444"
+                              strokeWidth={1}
+                            />
+                          )}
+                        </LineChart>
+                      </ResponsiveContainer>
+                    ) : (
+                      <div className="h-full rounded-xl border border-slate-200 bg-slate-50" />
+                    )}
                   </div>
                 </div>
               );
             })}
 
             {/* Chart 4: End Effector X, Y */}
-            <div className="bg-white border border-slate-200 shadow-sm p-3 rounded-xl flex flex-col h-full">
+            <div className="bg-white border border-slate-200 shadow-sm p-4 rounded-2xl flex flex-col min-w-0">
               <h3 className="text-[10px] font-bold text-slate-400 mb-1 uppercase tracking-wider">
                 End Effector X, Y
               </h3>
-              <div className="flex-1 min-h-0">
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart
-                    data={trajectory}
-                    margin={{ top: 5, right: 5, bottom: 0, left: -25 }}
-                    onMouseMove={(e: any) =>
-                      e.activeTooltipIndex !== undefined &&
-                      setHoverFrame(e.activeTooltipIndex)
-                    }
-                    onMouseLeave={() => setHoverFrame(null)}
+              <div className="h-44 sm:h-52">
+                {chartsReady ? (
+                  <ResponsiveContainer
+                    width="100%"
+                    height="100%"
+                    minWidth={0}
+                    minHeight={0}
                   >
-                    <CartesianGrid
-                      strokeDasharray="3 3"
-                      stroke="#f1f5f9"
-                      vertical={false}
-                    />
-                    <XAxis
-                      dataKey="time"
-                      stroke="#cbd5e1"
-                      tick={{ fill: "#64748b", fontSize: 10 }}
-                      tickFormatter={(val) => val.toFixed(1)}
-                    />
-                    <YAxis
-                      stroke="#cbd5e1"
-                      tick={{ fill: "#64748b", fontSize: 10 }}
-                      domain={["auto", "auto"]}
-                    />
-                    <Tooltip contentStyle={{ fontSize: "12px" }} />
-                    <Line
-                      type="monotone"
-                      dataKey="ee_x"
-                      stroke="#ef4444"
-                      name="X"
-                      strokeWidth={2}
-                      dot={false}
-                      isAnimationActive={false}
-                    />
-                    <Line
-                      type="monotone"
-                      dataKey="ee_y"
-                      stroke="#8b5cf6"
-                      name="Y"
-                      strokeWidth={2}
-                      dot={false}
-                      isAnimationActive={false}
-                    />
-                    {trajectory.length > 0 && (
-                      <ReferenceLine
-                        x={
-                          trajectory[
-                            hoverFrame !== null ? hoverFrame : currentFrame
-                          ]?.time
-                        }
-                        stroke="#ef4444"
-                        strokeWidth={1}
+                    <LineChart
+                      data={trajectory}
+                      margin={{ top: 5, right: 5, bottom: 0, left: -25 }}
+                      onMouseMove={(e: any) =>
+                        e.activeTooltipIndex !== undefined &&
+                        setHoverFrame(e.activeTooltipIndex)
+                      }
+                      onMouseLeave={() => setHoverFrame(null)}
+                    >
+                      <CartesianGrid
+                        strokeDasharray="3 3"
+                        stroke="#f1f5f9"
+                        vertical={false}
                       />
-                    )}
-                  </LineChart>
-                </ResponsiveContainer>
+                      <XAxis
+                        dataKey="time"
+                        stroke="#cbd5e1"
+                        tick={{ fill: "#64748b", fontSize: 10 }}
+                        tickFormatter={(val) => val.toFixed(1)}
+                      />
+                      <YAxis
+                        stroke="#cbd5e1"
+                        tick={{ fill: "#64748b", fontSize: 10 }}
+                        domain={["auto", "auto"]}
+                      />
+                      <Tooltip contentStyle={{ fontSize: "12px" }} />
+                      <Line
+                        type="monotone"
+                        dataKey="ee_x"
+                        stroke="#ef4444"
+                        name="X"
+                        strokeWidth={2}
+                        dot={false}
+                        isAnimationActive={false}
+                      />
+                      <Line
+                        type="monotone"
+                        dataKey="ee_y"
+                        stroke="#8b5cf6"
+                        name="Y"
+                        strokeWidth={2}
+                        dot={false}
+                        isAnimationActive={false}
+                      />
+                      {trajectory.length > 0 && (
+                        <ReferenceLine
+                          x={
+                            trajectory[
+                              hoverFrame !== null ? hoverFrame : currentFrame
+                            ]?.time
+                          }
+                          stroke="#ef4444"
+                          strokeWidth={1}
+                        />
+                      )}
+                    </LineChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="h-full rounded-xl border border-slate-200 bg-slate-50" />
+                )}
               </div>
             </div>
           </div>
