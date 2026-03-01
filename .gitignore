@@ -9,11 +9,6 @@ frontend/.next/
 frontend/out/
 frontend/build/
 
-# Python/uv
-backend/.venv/
-backend/__pycache__/
-backend/.pytest_cache/
-
 # OS/Editor Files
 .DS_Store
 .vscode/

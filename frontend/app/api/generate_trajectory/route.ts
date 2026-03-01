@@ -18,15 +18,6 @@ type TrajectoryPoint = {
   q3: number;
 };
 
-function getInternalApiUrl() {
-  return (
-    process.env.INTERNAL_API_URL ??
-    (process.env.NODE_ENV === "production"
-      ? "http://api:80"
-      : "http://localhost:8000")
-  );
-}
-
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
@@ -104,40 +95,6 @@ export async function POST(request: Request) {
     body = (await request.json()) as GenerateTrajectoryRequest;
   } catch {
     body = undefined;
-  }
-
-  const shouldMock = process.env.MOCK_API === "1" || process.env.MOCK_API === "true";
-  const internalApiUrl = getInternalApiUrl();
-
-  if (!shouldMock) {
-    try {
-      const upstream = await fetch(`${internalApiUrl}/api/generate_trajectory`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(body ?? {}),
-      });
-
-      // If backend responds, pass it through as-is (including non-200s).
-      const contentType = upstream.headers.get("content-type") || "";
-      const payload = await upstream.text();
-      return new NextResponse(payload, {
-        status: upstream.status,
-        headers: {
-          "content-type": contentType || "application/json",
-        },
-      });
-    } catch {
-      // If backend is unreachable, fall back to mock in dev; fail in prod.
-      if (process.env.NODE_ENV === "production") {
-        return NextResponse.json(
-          {
-            detail:
-              "Backend unavailable while in production. Set MOCK_API=1 to force mock responses.",
-          },
-          { status: 502 },
-        );
-      }
-    }
   }
 
   return NextResponse.json(generateMockTrajectory(body ?? {}));

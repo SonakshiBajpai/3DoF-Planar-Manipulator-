@@ -11,9 +11,6 @@ RUN --mount=type=cache,target=/root/.bun/install/cache \
 
 FROM base AS builder
 WORKDIR /app
-#
-ARG INTERNAL_API_URL
-ENV INTERNAL_API_URL=$INTERNAL_API_URL
 
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .

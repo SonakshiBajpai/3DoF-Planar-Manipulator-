@@ -9,7 +9,7 @@ export default function SiteFooter() {
             <span>Planar 3‑DoF trajectory planning visualization</span>
           </div>
           <div className="text-xs text-slate-500">
-            Built with Next.js + FastAPI • Local demo
+            Built with Next.js • Local demo
           </div>
         </div>
       </div>
